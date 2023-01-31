@@ -19,8 +19,7 @@ string ReadLine() {
 
 int ReadLineWithNumber() {
     int result = 0;
-    cin >> result;
-    ReadLine();
+    cin >> result >> ws;
     return result;
 }
 
