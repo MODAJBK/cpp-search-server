@@ -65,8 +65,7 @@ public:
 
         ++document_count_;
         for (const string& word : words) {
-            if (documents_.count(word) && documents_[word].count(document_id)) word_TF += word_TF;
-            documents_[word][document_id] = word_TF;
+            documents_[word][document_id] += word_TF;
         }
     }
 
