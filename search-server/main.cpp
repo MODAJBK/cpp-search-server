@@ -4,6 +4,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <numeric>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -166,17 +167,16 @@ public:
 
     template <typename DocumentPredicate>
     vector<Document> FindTopDocuments(const string& raw_query, DocumentPredicate document_predicate) const {
+        const double eps = 1e-6;
         const Query query = ParseQuery(raw_query);
         auto matched_documents = FindAllDocuments(query, document_predicate);
 
         sort(matched_documents.begin(), matched_documents.end(),
-            [](const Document& lhs, const Document& rhs) {
-                if (abs(lhs.relevance - rhs.relevance) < 1e-6) {
+            [eps](const Document& lhs, const Document& rhs) {
+                if (abs(lhs.relevance - rhs.relevance) < eps) {
                     return lhs.rating > rhs.rating;
                 }
-                else {
-                    return lhs.relevance > rhs.relevance;
-                }
+                return lhs.relevance > rhs.relevance;
             });
         if (matched_documents.size() > MAX_RESULT_DOCUMENT_COUNT) {
             matched_documents.resize(MAX_RESULT_DOCUMENT_COUNT);
@@ -247,10 +247,7 @@ private:
         if (ratings.empty()) {
             return 0;
         }
-        int rating_sum = 0;
-        for (const int rating : ratings) {
-            rating_sum += rating;
-        }
+        const int rating_sum = accumulate(ratings.begin(), ratings.end(), 0);
         return rating_sum / static_cast<int>(ratings.size());
     }
 
@@ -295,7 +292,6 @@ private:
         return query;
     }
 
-    // Existence required
     double ComputeWordInverseDocumentFreq(const string& word) const {
         return log(GetDocumentCount() * 1.0 / word_to_document_freqs_.at(word).size());
     }
@@ -358,19 +354,18 @@ void TestExcludeStopWordsFromAddedDocumentContent() {
         server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
         ASSERT_HINT(server.FindTopDocuments("in"s).empty(), "Stop words must be excluded from documents"s);
     }
-    {
-        SearchServer server;
-        server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
-        ASSERT_HINT(server.FindTopDocuments("Small dog -cat"s).empty(), "Eror in FindTopDocuments."s);
-    }
 }
 
-void TextRelevantSort() {
+void TestExcludeDocumentsWithMinusWords() {
+    const int doc_id = 42;
+    const string content = "cat in the city"s;
+    const vector<int> ratings = { 1, 2, 3 };
+
     SearchServer server;
-    server.AddDocument(30, "Big black dog has found"s, DocumentStatus::ACTUAL, { 3, 5, 7 });
-    server.AddDocument(31, "Small curly dog wiht white fure"s, DocumentStatus::ACTUAL, { 2, 7, 1 });
-    const auto found_docs = server.FindTopDocuments("big black dog"s);
-    ASSERT_HINT(found_docs[0].relevance >= found_docs[1].relevance, "Eror in sorting of found docks"s);
+    server.AddDocument(30, "cat in the city"s, DocumentStatus::ACTUAL, { 1, 2, 3 });
+    server.AddDocument(31, "big black dog"s, DocumentStatus::ACTUAL, { 0, 1, 4 });
+    const auto found_docs = server.FindTopDocuments("big black animal -cat"s);
+    ASSERT_EQUAL_HINT(found_docs[0].id, 31, "Documents with minus words should be exclude from search"s);
 }
 
 void TextAvRatingComputation() {
@@ -378,6 +373,53 @@ void TextAvRatingComputation() {
     server.AddDocument(30, "Big black dog has found"s, DocumentStatus::ACTUAL, { 1, 2 ,3 });
     const auto found_docs = server.FindTopDocuments("big black dog");
     ASSERT_EQUAL_HINT(found_docs[0].rating, (1 + 2 + 3) / 3, "Eror in avarage rating computation."s);
+}
+
+void TestRelevanceComputation() {
+    SearchServer server;
+    server.AddDocument(30, "black dog has found"s, DocumentStatus::ACTUAL, { 3, 5, 7 });
+    server.AddDocument(31, "big curly capibara wiht brown fure"s, DocumentStatus::ACTUAL, { 2, 7, 1 });
+    server.AddDocument(32, "small grey cat"s, DocumentStatus::ACTUAL, { 1, 2, 3 });
+    const auto found_docs = server.FindTopDocuments("big black dog"s);
+    ASSERT_EQUAL_HINT(found_docs[0].relevance, log(server.GetDocumentCount() * 1.0 / 1) * (2.0 / 4), "Eror in relevance computation");
+}
+
+void TextRelevantSort() {
+    SearchServer server;
+    server.AddDocument(30, "black dog has found"s, DocumentStatus::ACTUAL, { 3, 5, 7 });
+    server.AddDocument(31, "big curly dog wiht white fure"s, DocumentStatus::ACTUAL, { 2, 7, 1 });
+    server.AddDocument(32, "small black cat"s, DocumentStatus::ACTUAL, { 1, 2, 3 });
+    const auto found_docs = server.FindTopDocuments("big black dog"s);
+    ASSERT_HINT(found_docs[0].relevance >= found_docs[1].relevance && found_docs[1].relevance >= found_docs[2].relevance, "Eror in sorting of found docks"s);
+}
+
+void TestStatusSearch() {
+    SearchServer server;
+    server.AddDocument(30, "Big black dog has found"s, DocumentStatus::ACTUAL, { 1, 2, 3 });
+    server.AddDocument(31, "Black cat"s, DocumentStatus::BANNED, { 0 });
+    {
+        const auto [matched_words, status] = server.MatchDocument("big black dog"s, 30);
+        ASSERT_EQUAL_HINT(static_cast<int>(status), static_cast<int>(DocumentStatus::ACTUAL), "Eror in document status appropriation"s);
+    }
+    {
+        const auto [matched_words, status] = server.MatchDocument("big black dog"s, 31);
+        ASSERT_EQUAL_HINT(static_cast<int>(status), static_cast<int>(DocumentStatus::BANNED), "Eror in document status appropriation"s);
+    }
+}
+
+void TestWordsMatching() {
+    SearchServer server;
+    server.AddDocument(30, "Big black dog has found"s, DocumentStatus::ACTUAL, { 1, 2, 3 });
+    server.AddDocument(31, "Black cat"s, DocumentStatus::ACTUAL, { 0 });
+    {
+        const vector<string> matched_ref = { "black"s, "dog"s };
+        const auto [matched_words, status] = server.MatchDocument("big black dog"s, 30);
+        ASSERT_EQUAL_HINT(matched_words, matched_ref, "Eror in matching words detection"s);
+    }
+    {
+        const auto [matched_words, status] = server.MatchDocument("big black dog -cat", 31);
+        ASSERT_HINT(matched_words.empty(), "Eror in minus words filtration"s);
+    }
 }
 
 void TestPredicatFiltration() {
@@ -393,19 +435,15 @@ void TestPredicatFiltration() {
     ASSERT_EQUAL_HINT(found_docs3[0].id, 31, "Eror in predicate filtration"s);
 }
 
-void TestRelevanceComputation() {
-    SearchServer server;
-    server.AddDocument(30, "Big black dog has found"s, DocumentStatus::ACTUAL, { 1, 2, 3 });
-    const auto found_docs = server.FindTopDocuments("Big black dog"s);
-    ASSERT_EQUAL_HINT(found_docs[0].relevance, 0, "Eror in relevance computation");
-}
-
 void TestSearchServer() {
     RUN_TEST(TestExcludeStopWordsFromAddedDocumentContent);
-    RUN_TEST(TextRelevantSort);
+    RUN_TEST(TestExcludeDocumentsWithMinusWords);
     RUN_TEST(TextAvRatingComputation);
-    RUN_TEST(TestPredicatFiltration);
     RUN_TEST(TestRelevanceComputation);
+    RUN_TEST(TextRelevantSort);
+    RUN_TEST(TestStatusSearch);
+    RUN_TEST(TestWordsMatching);
+    RUN_TEST(TestPredicatFiltration);
 }
 
 // --------- ќкончание модульных тестов поисковой системы -----------
