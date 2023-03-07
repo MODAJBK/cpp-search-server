@@ -4,11 +4,15 @@
 #include <map>
 #include <set>
 #include <string>
-#include <numeric>
-#include <sstream>
 #include <utility>
 #include <vector>
-#include <cassert>
+#include <cstdlib>
+#include <iomanip>
+#include <set>
+#include <vector>
+#include <sstream>
+#include <numeric>
+#include <stdexcept>
 
 using namespace std;
 
@@ -116,7 +120,7 @@ vector<string> SplitIntoWords(const string& text) {
     for (const char c : text) {
         if (c == ' ') {
             if (!word.empty()) {
-                words.push_back(word);
+                words.emplace_back(word);
                 word.clear();
             }
         }
@@ -125,16 +129,22 @@ vector<string> SplitIntoWords(const string& text) {
         }
     }
     if (!word.empty()) {
-        words.push_back(word);
+        words.emplace_back(word);
     }
 
     return words;
 }
 
 struct Document {
-    int id;
-    double relevance;
-    int rating;
+    Document() = default;
+
+    Document(int id, double relevance, int rating)
+        :id(id), relevance(relevance), rating(rating)
+    {
+    }
+    int id = 0;
+    double relevance = 0;
+    int rating = 0;
 };
 
 enum class DocumentStatus {
@@ -144,25 +154,48 @@ enum class DocumentStatus {
     REMOVED,
 };
 
+template <typename Container>
+set<string> MakeUniqueNonEmptyStrings(const Container& strings) {
+    set<string> non_empty_strings;
+    for (const string& str : strings) {
+        if (!str.empty()) {
+            non_empty_strings.emplace(str);
+        }
+    }
+    return non_empty_strings;
+}
+
 class SearchServer {
 public:
-    void SetStopWords(const string& text) {
-        for (const string& word : SplitIntoWords(text)) {
-            stop_words_.insert(word);
+    inline static constexpr int INVALID_DOCUMENT_ID = -1;
+
+    SearchServer() = default;
+
+    template <typename Container>
+    explicit SearchServer(const Container& stop_words)
+        : stop_words_(MakeUniqueNonEmptyStrings(stop_words))
+    {
+        for (const auto& stop_word : stop_words) {
+            IsValidWord(stop_word);
         }
     }
 
+    explicit SearchServer(const string& stop_words)
+        : SearchServer(SplitIntoWords(stop_words))
+    {
+    }
+
     void AddDocument(int document_id, const string& document, DocumentStatus status, const vector<int>& ratings) {
+        if (document_id < 0 || documents_.find(document_id) != documents_.end()) {
+            throw invalid_argument("document id should be uniq and greater than 0"s);
+        }
+
         const vector<string> words = SplitIntoWordsNoStop(document);
         const double inv_word_count = 1.0 / words.size();
         for (const string& word : words) {
             word_to_document_freqs_[word][document_id] += inv_word_count;
         }
-        documents_.emplace(document_id,
-            DocumentData{
-                ComputeAverageRating(ratings),
-                status
-            });
+        documents_.emplace(document_id, DocumentData{ ComputeAverageRating(ratings), status });
     }
 
     template <typename DocumentPredicate>
@@ -204,7 +237,7 @@ public:
                 continue;
             }
             if (word_to_document_freqs_.at(word).count(document_id)) {
-                matched_words.push_back(word);
+                matched_words.emplace_back(word);
             }
         }
         for (const string& word : query.minus_words) {
@@ -219,6 +252,16 @@ public:
         return { matched_words, documents_.at(document_id).status };
     }
 
+    int GetDocumentId(int index) const {
+        if (index < 0 || index >= documents_.size()) {
+            throw out_of_range("no such index");
+        }
+        else
+        {
+            return index;
+        }
+    }
+
 private:
     struct DocumentData {
         int rating;
@@ -229,6 +272,13 @@ private:
     map<string, map<int, double>> word_to_document_freqs_;
     map<int, DocumentData> documents_;
 
+    static void IsValidWord(const string& word) {
+        if (!none_of(word.begin(), word.end(), [](char c) {
+            return c >= '\0' && c < ' ';
+            }))
+            throw invalid_argument("Word content inappropriate symbols"s);
+    }
+
     bool IsStopWord(const string& word) const {
         return stop_words_.count(word) > 0;
     }
@@ -236,8 +286,9 @@ private:
     vector<string> SplitIntoWordsNoStop(const string& text) const {
         vector<string> words;
         for (const string& word : SplitIntoWords(text)) {
+            IsValidWord(word);
             if (!IsStopWord(word)) {
-                words.push_back(word);
+                words.emplace_back(word);
             }
         }
         return words;
@@ -259,7 +310,6 @@ private:
 
     QueryWord ParseQueryWord(string text) const {
         bool is_minus = false;
-        // Word shouldn't be empty
         if (text[0] == '-') {
             is_minus = true;
             text = text.substr(1);
@@ -279,13 +329,17 @@ private:
     Query ParseQuery(const string& text) const {
         Query query;
         for (const string& word : SplitIntoWords(text)) {
+            IsValidWord(word);
             const QueryWord query_word = ParseQueryWord(word);
             if (!query_word.is_stop) {
                 if (query_word.is_minus) {
-                    query.minus_words.insert(query_word.data);
+                    if (query_word.data.empty() || query_word.data[0] == '-') {
+                        throw invalid_argument("Invalid query format"s);
+                    }
+                    query.minus_words.emplace(query_word.data);
                 }
                 else {
-                    query.plus_words.insert(query_word.data);
+                    query.plus_words.emplace(query_word.data);
                 }
             }
         }
@@ -334,7 +388,7 @@ private:
 };
 
 
-// -------- Ќачало модульных тестов поисковой системы ----------
+// -------- Starting of the module tests ----------
 
 void TestExcludeStopWordsFromAddedDocumentContent() {
     const int doc_id = 42;
@@ -349,8 +403,7 @@ void TestExcludeStopWordsFromAddedDocumentContent() {
         ASSERT_EQUAL_HINT(doc0.id, doc_id, "Eror in FindTopDocuments.");
     }
     {
-        SearchServer server;
-        server.SetStopWords("in the"s);
+        SearchServer server("in the"s);
         server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
         ASSERT_HINT(server.FindTopDocuments("in"s).empty(), "Stop words must be excluded from documents"s);
     }
@@ -446,7 +499,7 @@ void TestSearchServer() {
     RUN_TEST(TestPredicatFiltration);
 }
 
-// --------- ќкончание модульных тестов поисковой системы -----------
+// --------- Ending of the module tests -----------
 
 int main() {
     TestSearchServer();
