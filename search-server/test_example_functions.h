@@ -9,8 +9,24 @@
 #include "document.h"
 #include "paginator.h"
 #include "request_queue.h"
+#include "remove_duplicates.h"
 
 using namespace std::string_literals;
+
+template<typename Element1, typename Element2>
+std::ostream& operator<<(std::ostream& out, const std::pair<Element1, Element2>& container);
+
+template<typename Container>
+void Print(std::ostream& out, const Container& container);
+
+template<typename Element>
+std::ostream& operator<<(std::ostream& out, const std::vector<Element>& container);
+
+template<typename Element>
+std::ostream& operator<<(std::ostream& out, const std::set<Element>& container);
+
+template<typename Element1, typename Element2>
+std::ostream& operator<<(std::ostream& out, const std::map<Element1, Element2>& container);
 
 template <typename T, typename U>
 void AssertEqualImpl(const T&, const U&, const std::string&, const std::string&, const std::string&, const std::string&, unsigned, const std::string&);
@@ -51,6 +67,46 @@ void RunTestImpl(FuncTest& func_test, const std::string& func_name) {
     std::cerr << func_name << " completed." << std::endl;
 }
 
+template<typename Element1, typename Element2>
+std::ostream& operator<<(std::ostream& out, const std::pair<Element1, Element2>& container) {
+    return out << container.first << ": "s << container.second;
+}
+
+template<typename Container>
+void Print(std::ostream& out, const Container& container) {
+    bool is_first = true;
+    for (const auto& element : container) {
+        if (!is_first) out << ", "s;
+        out << element;
+        is_first = false;
+    }
+}
+
+template<typename Element>
+std::ostream& operator<<(std::ostream& out, const std::vector<Element>& container) {
+    out << "["s;
+    Print(out, container);
+    out << "]"s;
+    return out;
+}
+
+template<typename Element>
+std::ostream& operator<<(std::ostream& out, const std::set<Element>& container) {
+    out << "{"s;
+    Print(out, container);
+    out << "}"s;
+    return out;
+}
+
+template<typename Element1, typename Element2>
+std::ostream& operator<<(std::ostream& out, const std::map<Element1, Element2>& container) {
+    out << "{"s;
+    Print(out, container);
+    out << "}"s;
+    return out;
+}
+
+
 void TestExcludeStopWordsFromAddedDocumentContent();
 void TestExcludeDocumentsWithMinusWords();
 void TextAvRatingComputation();
@@ -62,3 +118,5 @@ void TestPredicatFiltration();
 void TestPeginator();
 void TestQueryQueue();
 void TestSearchServer();
+void TestRemoveDocument();
+void TestRemoveDuplicates();

@@ -4,8 +4,6 @@
 #include <vector>
 #include <algorithm>
 
-using namespace std::string_literals;
-
 template <typename Iterator>
 class IteratorRange {
 public:

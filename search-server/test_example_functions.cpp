@@ -35,7 +35,6 @@ void TestExcludeStopWordsFromAddedDocumentContent() {
 }
 
 void TestExcludeDocumentsWithMinusWords() {
-    const int doc_id = 42;
     const std::string content = "cat in the city"s;
     const std::vector<int> ratings = { 1, 2, 3 };
 
@@ -144,6 +143,32 @@ void TestQueryQueue() {
     ASSERT_EQUAL_HINT(request_queue.GetNoResultRequests(), resulted_empty_requests, "Error in building the request queue"s);
 }
 
+void TestRemoveDocument() {
+    SearchServer search_server("and in at"s);
+    search_server.AddDocument(1, "curly dog and fancy collar"s, DocumentStatus::ACTUAL, { 1, 2, 3 });
+    search_server.AddDocument(2, "big cat fancy collar "s, DocumentStatus::ACTUAL, { 1, 2, 8 });
+    search_server.AddDocument(3, "big dog sparrow Eugene"s, DocumentStatus::ACTUAL, { 1, 3, 2 });
+    search_server.RemoveDocument(2);
+    auto found_docs = search_server.FindTopDocuments("a cat"s);
+    ASSERT_HINT(found_docs.empty(), "Error in documents removement"s);
+}
+
+void TestRemoveDuplicates() {
+    SearchServer search_server("and with"s);
+    search_server.AddDocument(1, "funny pet and nasty rat"s, DocumentStatus::ACTUAL, { 7, 2, 7 });
+    search_server.AddDocument(2, "funny pet with curly hair"s, DocumentStatus::ACTUAL, { 1, 2 });
+    search_server.AddDocument(3, "funny pet with curly hair"s, DocumentStatus::ACTUAL, { 1, 2 });
+    search_server.AddDocument(4, "funny pet and curly hair"s, DocumentStatus::ACTUAL, { 1, 2 });
+    search_server.AddDocument(5, "funny funny pet and nasty nasty rat"s, DocumentStatus::ACTUAL, { 1, 2 });
+    search_server.AddDocument(6, "funny pet and not very nasty rat"s, DocumentStatus::ACTUAL, { 1, 2 });
+    search_server.AddDocument(7, "very nasty rat and not very funny pet"s, DocumentStatus::ACTUAL, { 1, 2 });
+    search_server.AddDocument(9, "nasty rat with curly hair"s, DocumentStatus::ACTUAL, { 1, 2 });
+    //Need to remove 4 documents.
+    auto documents_before_removing = search_server.GetDocumentCount();
+    RemoveDuplicates(search_server);
+    ASSERT_EQUAL_HINT(search_server.GetDocumentCount(), documents_before_removing - 4, "Error in function RemoveDuplicates"s);
+}
+
 void TestSearchServer() {
     RUN_TEST(TestExcludeStopWordsFromAddedDocumentContent);
     RUN_TEST(TestExcludeDocumentsWithMinusWords);
@@ -155,4 +180,6 @@ void TestSearchServer() {
     RUN_TEST(TestPredicatFiltration);
     RUN_TEST(TestPeginator);
     RUN_TEST(TestQueryQueue);
+    RUN_TEST(TestRemoveDocument);
+    RUN_TEST(TestRemoveDuplicates);
 }
