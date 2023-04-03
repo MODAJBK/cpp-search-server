@@ -14,7 +14,8 @@ public:
 
     LogDuration(const std::string& id, std::ostream& out = std::cerr)
         : id_(id) 
-        , os_(out) {
+        , os_(out)
+        , start_time_(Clock::now()) {
     }
 
     ~LogDuration() {
@@ -23,11 +24,11 @@ public:
 
         const auto end_time = Clock::now();
         const auto dur = end_time - start_time_;
-        os_ << id_ << ": "s << duration_cast<milliseconds>(dur).count() << " ms"s << std::endl;
+        os_ << id_ << ": "s << duration_cast<microseconds>(dur).count() << " us"s << std::endl;
     }
 
 private:
     const std::string id_;
-    const Clock::time_point start_time_ = Clock::now();
+    const Clock::time_point start_time_;
     std::ostream& os_;
 };
