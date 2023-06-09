@@ -209,8 +209,8 @@ std::vector<Document> SearchServer::FindAllDocuments(const std::execution::paral
     std::transform(std::execution::par, 
                    result.begin(), result.end(), 
                    matched_documents.begin(), 
-                   [this](const auto& doc) {
-                       return Document{ doc.first, doc.second, documents_.at(doc.first).rating };
+                   [this](const auto& id_relevance) {
+                       return Document{ id_relevance.first, id_relevance.second, documents_.at(id_relevance.first).rating };
                    });
     return matched_documents;
 }
