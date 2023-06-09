@@ -15,6 +15,15 @@ void AssertImpl(bool value, const std::string& expr_str, const std::string& file
     }
 }
 
+std::vector<std::string_view> VectStringToVectStringView(const std::vector<std::string>& source) {
+    std::vector<std::string_view> result;
+    result.reserve(source.size());
+    for (const auto& s : source) {
+        result.emplace_back(std::string_view(s));
+    }
+    return result;
+}
+
 void TestExcludeStopWordsFromAddedDocumentContent() {
     const int doc_id = 42;
     const std::string content = "cat in the city"s;
@@ -85,18 +94,41 @@ void TestStatusSearch() {
 }
 
 void TestWordsMatching() {
-    SearchServer server;
-    server.AddDocument(30, "Big black dog has found"s, DocumentStatus::ACTUAL, { 1, 2, 3 });
-    server.AddDocument(31, "Black cat"s, DocumentStatus::ACTUAL, { 0 });
-    {
-        const std::vector<std::string> matched_ref = { "black"s, "dog"s };
-        const auto [matched_words, status] = server.MatchDocument("big black dog"s, 30);
-        ASSERT_EQUAL_HINT(matched_words, matched_ref, "Error in matching words detection"s);
+    SearchServer search_server("and with to"s);
+    const std::vector<int> ratings1 = { 1, 2, 3, 4, 5 };
+    const std::vector<int> ratings2 = { -1, -2, 30, -3, 44, 5 };
+    const std::vector<int> ratings3 = { 12, -20, 80, 0, 8, 0, 0, 9, 67 };
+    search_server.AddDocument(1, "white cat and fashion collar"s, DocumentStatus::ACTUAL, ratings1);
+    search_server.AddDocument(2, "fluffy cat fluffy tail"s, DocumentStatus::ACTUAL, ratings2);
+    search_server.AddDocument(3, "wellgroomed dog expressive eyes"s, DocumentStatus::ACTUAL,ratings3);
+    search_server.AddDocument(4, "white fashion cat"s, DocumentStatus::IRRELEVANT, ratings1);
+    search_server.AddDocument(5, "fluffy cat dog", DocumentStatus::IRRELEVANT, ratings2);
+    search_server.AddDocument(6, "wellgroomed collar expressive eyes"s, DocumentStatus::IRRELEVANT, ratings3);
+    const std::string query = "fluffy wellgroomed cat -collar"s;
+    std::vector<std::vector<std::string>> ref = {
+        {},
+        {"cat"s, "fluffy"s},
+        {"wellgroomed"s},
+        {"cat"s},
+        {"cat"s, "fluffy"s},
+        {}
+    };
+    std::vector<std::vector<std::string_view>> match_ref(ref.size());
+    for (int i = 0; i < ref.size(); ++i) {
+        match_ref[i] = VectStringToVectStringView(ref[i]);
     }
-    {
-        const auto [matched_words, status] = server.MatchDocument("big black dog -cat", 31);
-        ASSERT_HINT(matched_words.empty(), "Error in minus words filtration"s);
-    }
+    auto [words1, doc1] = search_server.MatchDocument(std::execution::seq, query, 1);
+    auto [words2, doc2] = search_server.MatchDocument(query, 2);
+    auto [words3, doc3] = search_server.MatchDocument(std::execution::par, query, 3);
+    auto [words4, doc4] = search_server.MatchDocument(std::execution::seq, query, 4);
+    auto [words5, doc5] = search_server.MatchDocument(query, 5);
+    auto [words6, doc6] = search_server.MatchDocument(std::execution::par, query, 6);
+    ASSERT_EQUAL_HINT(words1, match_ref[0], "Error in searching matched words"s);
+    ASSERT_EQUAL_HINT(words2, match_ref[1], "Error in searching matched words"s);
+    ASSERT_EQUAL_HINT(words3, match_ref[2], "Error in searching matched words"s);
+    ASSERT_EQUAL_HINT(words4, match_ref[3], "Error in searching matched words"s);
+    ASSERT_EQUAL_HINT(words5, match_ref[4], "Error in searching matched words"s);
+    ASSERT_EQUAL_HINT(words6, match_ref[5], "Error in searching matched words"s);
 }
 
 void TestPredicatFiltration() {
@@ -144,13 +176,26 @@ void TestQueryQueue() {
 }
 
 void TestRemoveDocument() {
-    SearchServer search_server("and in at"s);
-    search_server.AddDocument(1, "curly dog and fancy collar"s, DocumentStatus::ACTUAL, { 1, 2, 3 });
-    search_server.AddDocument(2, "big cat fancy collar "s, DocumentStatus::ACTUAL, { 1, 2, 8 });
-    search_server.AddDocument(3, "big dog sparrow Eugene"s, DocumentStatus::ACTUAL, { 1, 3, 2 });
-    search_server.RemoveDocument(2);
-    auto found_docs = search_server.FindTopDocuments("a cat"s);
-    ASSERT_HINT(found_docs.empty(), "Error in documents removement"s);
+    SearchServer search_server("and with"s);
+    int id = 0;
+    for (
+        const std::string& text : {
+            "funny pet and nasty rat"s,
+            "funny pet with curly hair"s,
+            "funny pet and not very nasty rat"s,
+            "pet with rat and rat and rat"s,
+            "nasty rat with curly hair"s,
+        }
+        ) {
+        search_server.AddDocument(++id, text, DocumentStatus::ACTUAL, { 1, 2 });
+    }
+    const std::string query = "curly and funny"s;
+    search_server.RemoveDocument(5);
+    ASSERT_EQUAL_HINT(search_server.GetDocumentCount(), 4, "Error in documents removement"s);
+    search_server.RemoveDocument(std::execution::seq, 1);
+    ASSERT_EQUAL_HINT(search_server.GetDocumentCount(), 3, "Error in documents removement"s);
+    search_server.RemoveDocument(std::execution::par, 2);
+    ASSERT_EQUAL_HINT(search_server.GetDocumentCount(), 2, "Error in documents removement"s);
 }
 
 void TestRemoveDuplicates() {
@@ -169,6 +214,52 @@ void TestRemoveDuplicates() {
     ASSERT_EQUAL_HINT(search_server.GetDocumentCount(), documents_before_removing - 4, "Error in function RemoveDuplicates"s);
 }
 
+void TestProcessQueries() {
+    SearchServer search_server("and with"s);
+    int id = 0;
+    for (
+        const std::string& text : {
+            "funny pet and nasty rat"s,
+            "funny pet with curly hair"s,
+            "funny pet and not very nasty rat"s,
+            "pet with rat and rat and rat"s,
+            "nasty rat with curly hair"s,
+        }
+        ) {
+        search_server.AddDocument(++id, text, DocumentStatus::ACTUAL, { 1, 2 });
+    }
+    const std::vector<std::string> queries = {
+        "nasty rat -not"s,
+        "not very funny nasty pet"s,
+        "curly hair"s
+    };
+    const auto result = ProcessQueries(search_server, queries);
+    ASSERT_EQUAL_HINT(result[0].size(), search_server.FindTopDocuments(queries[0]).size(), "Error in function ProcessQueries"s);
+    ASSERT_EQUAL_HINT(result[1].size(), search_server.FindTopDocuments(queries[1]).size(), "Error in function ProcessQueries"s);
+    ASSERT_EQUAL_HINT(result[2].size(), search_server.FindTopDocuments(queries[2]).size(), "Error in function ProcessQueries"s);
+}
+
+void TestFindingDocumentsWithPolicy() {
+    SearchServer search_server("and with"s);
+    int id = 0;
+    for (
+        const std::string& text : {
+            "white cat and yellow hat"s,
+            "curly cat curly tail"s,
+            "nasty dog with big eyes"s,
+            "nasty pigeon john"s,
+        }
+        ) {
+        search_server.AddDocument(++id, text, DocumentStatus::ACTUAL, { 1, 2 });
+    }
+    const auto result1 = search_server.FindTopDocuments("curly nasty cat"s);
+    ASSERT_EQUAL_HINT(result1.size(), id, "Error in Finding Documents without policy"s);
+    const auto result2 = search_server.FindTopDocuments(std::execution::seq, "curly nasty cat"s, DocumentStatus::BANNED);
+    ASSERT_EQUAL_HINT(result2.size(), 0, "Error in Finding Documents with seq policy"s);
+    const auto result3 = search_server.FindTopDocuments(std::execution::par, "curly nasty cat"s, [](int document_id, DocumentStatus status, int rating) { return document_id % 2 == 0; });
+    ASSERT_EQUAL_HINT(result3.size(), id / 2, "Error in Finding Documents without policy"s);
+}
+
 void TestSearchServer() {
     RUN_TEST(TestExcludeStopWordsFromAddedDocumentContent);
     RUN_TEST(TestExcludeDocumentsWithMinusWords);
@@ -182,4 +273,6 @@ void TestSearchServer() {
     RUN_TEST(TestQueryQueue);
     RUN_TEST(TestRemoveDocument);
     RUN_TEST(TestRemoveDuplicates);
+    RUN_TEST(TestProcessQueries);
+    RUN_TEST(TestFindingDocumentsWithPolicy);
 }

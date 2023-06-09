@@ -10,8 +10,7 @@
 #include "paginator.h"
 #include "request_queue.h"
 #include "remove_duplicates.h"
-
-using namespace std::string_literals;
+#include "process_queries.h"
 
 template<typename Element1, typename Element2>
 std::ostream& operator<<(std::ostream& out, const std::pair<Element1, Element2>& container);
@@ -48,6 +47,7 @@ void RunTestImpl(FuncTest&, const std::string&);
 template <typename T, typename U>
 void AssertEqualImpl(const T& t, const U& u, const std::string& t_str, const std::string& u_str, const std::string& file,
     const std::string& func, unsigned line, const std::string& hint) {
+    using namespace std::string_literals;
     if (t != u) {
         std::cout << std::boolalpha;
         std::cout << file << "("s << line << "): "s << func << ": "s;
@@ -63,17 +63,20 @@ void AssertEqualImpl(const T& t, const U& u, const std::string& t_str, const std
 
 template <typename FuncTest>
 void RunTestImpl(FuncTest& func_test, const std::string& func_name) {
+    using namespace std::string_literals;
     func_test();
-    std::cerr << func_name << " completed." << std::endl;
+    std::cerr << func_name << " completed."s << std::endl;
 }
 
 template<typename Element1, typename Element2>
 std::ostream& operator<<(std::ostream& out, const std::pair<Element1, Element2>& container) {
+    using namespace std::string_literals;
     return out << container.first << ": "s << container.second;
 }
 
 template<typename Container>
 void Print(std::ostream& out, const Container& container) {
+    using namespace std::string_literals;
     bool is_first = true;
     for (const auto& element : container) {
         if (!is_first) out << ", "s;
@@ -84,6 +87,7 @@ void Print(std::ostream& out, const Container& container) {
 
 template<typename Element>
 std::ostream& operator<<(std::ostream& out, const std::vector<Element>& container) {
+    using namespace std::string_literals;
     out << "["s;
     Print(out, container);
     out << "]"s;
@@ -92,6 +96,7 @@ std::ostream& operator<<(std::ostream& out, const std::vector<Element>& containe
 
 template<typename Element>
 std::ostream& operator<<(std::ostream& out, const std::set<Element>& container) {
+    using namespace std::string_literals;
     out << "{"s;
     Print(out, container);
     out << "}"s;
@@ -100,12 +105,14 @@ std::ostream& operator<<(std::ostream& out, const std::set<Element>& container) 
 
 template<typename Element1, typename Element2>
 std::ostream& operator<<(std::ostream& out, const std::map<Element1, Element2>& container) {
+    using namespace std::string_literals;
     out << "{"s;
     Print(out, container);
     out << "}"s;
     return out;
 }
 
+std::vector<std::string_view> VectStringToVectStringView(const std::vector<std::string>&);
 
 void TestExcludeStopWordsFromAddedDocumentContent();
 void TestExcludeDocumentsWithMinusWords();
@@ -120,3 +127,5 @@ void TestQueryQueue();
 void TestSearchServer();
 void TestRemoveDocument();
 void TestRemoveDuplicates();
+void TestProcessQueries();
+void TestFindingDocumentsWithPolicy();
